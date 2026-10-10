@@ -15,6 +15,12 @@ const TIMELINE_MAX_VISIBLE = 200;
 const PREVIEW_LIMIT = 180;
 const DETAIL_LIMIT = 4000;
 
+/**
+ * 无新 token 到达超过该时长即视为输出卡住：tok/s 归 0 而不是冻结在上一个值。
+ * 与宿主 StreamMetrics 的 STALL_THRESHOLD_MS 保持一致。
+ */
+const STALL_THRESHOLD_MS = 2000;
+
 export default function SessionTrackPanel(props) {
   const api = props.api;
   const Snow = typeof window === "undefined" ? null : window.SnowAppPlugin;
@@ -289,6 +295,16 @@ function TrackPanel(props) {
     return () => clearInterval(timer);
   }, [isLive]);
 
+  /* ---------- 6.1 卡住检测：token 累计数最后变化时刻（宿主同款口径） ---------- */
+  const lastTokenChangeRef = useRef({ key: "", at: Date.now() });
+  const liveTokens = firstNum(runtime.conversation.streamTokenCount) || 0;
+  useEffect(() => {
+    const key = (activeId || "") + ":" + liveTokens;
+    if (lastTokenChangeRef.current.key !== key) {
+      lastTokenChangeRef.current = { key, at: Date.now() };
+    }
+  }, [activeId, liveTokens]);
+
   const messages = useMemo(() => readMessages(unwrapDomain(messagesSnap, "messages")), [messagesSnap]);
   const selectedRecord = useMemo(
     () => findConversation(conversations, selectedId),
@@ -311,7 +327,12 @@ function TrackPanel(props) {
       tr,
       now,
     });
-    const liveMetrics = readLiveMetrics(conversation, chatInputOf(runtime), now);
+    const liveMetrics = readLiveMetrics(
+      conversation,
+      chatInputOf(runtime),
+      now,
+      lastTokenChangeRef.current.at,
+    );
     const totals = readTotals(conversation, selectedRecord);
     return {
       conversation,
@@ -660,9 +681,15 @@ function tabButton(api, h, id, iconName, label, current, setTab) {
 }
 
 function liveStrip(api, h, tr, metrics) {
+  const stalled = metrics.isStalled === true;
   const items = [
     { key: "tokens", icon: "Sigma", label: tr("live.tokens", "输出 token"), value: fmtInt(metrics.tokens) },
-    { key: "elapsed", icon: "Timer", label: tr("live.elapsed", "耗时"), value: fmtDuration(metrics.elapsedMs) },
+    {
+      key: "elapsed",
+      icon: "Timer",
+      label: tr("live.elapsed", "运行时长"),
+      value: fmtDuration(metrics.elapsedMs),
+    },
     {
       key: "ttft",
       icon: "Zap",
@@ -672,8 +699,13 @@ function liveStrip(api, h, tr, metrics) {
     {
       key: "speed",
       icon: "Activity",
-      label: tr("live.speed", "速度"),
-      value: metrics.tokensPerSecond === null ? "—" : metrics.tokensPerSecond.toFixed(1) + " tok/s",
+      label: stalled ? tr("live.stalled", "输出停滞") : tr("live.speed", "输出速度"),
+      value:
+        stalled || metrics.tokensPerSecond === null
+          ? stalled
+            ? "0"
+            : "—"
+          : fmtTokensPerSecond(metrics.tokensPerSecond),
     },
   ];
   return h(
@@ -1336,6 +1368,11 @@ function fmtDuration(value) {
   return hours + "h" + (minutes % 60) + "m";
 }
 
+function fmtTokensPerSecond(tps) {
+  if (typeof tps !== "number" || !Number.isFinite(tps)) return "—";
+  return (tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1)) + " tok/s";
+}
+
 function fmtTime(at) {
   const n = num(at);
   if (n === null || n <= 0) return "";
@@ -1535,16 +1572,27 @@ function readTodos(conversation) {
   return { items, rows, total, completed, incomplete: total - completed };
 }
 
-function readLiveMetrics(conversation, chatInput, now) {
+function readLiveMetrics(conversation, chatInput, now, lastTokenChangeAt) {
   const startedAt = firstNum(conversation.streamStartedAt);
+  const isStreaming = conversation.isStreaming === true;
+  // 与宿主 StreamMetrics 同口径：耗时取「后端累计的完整流式时长」
+  // （streamElapsedMs = 本次 run 各迭代已结束流式时长之和，含工具执行等待），
+  // 不是墙钟时间，也不能拿墙钟时间兜底；仅在没有后端值时用 run 锚点估算。
   const elapsedFromBackend = firstNum(conversation.streamElapsedMs);
-  const elapsedMs =
-    conversation.isStreaming === true && startedAt !== null && startedAt > 0
-      ? Math.max(now - startedAt, elapsedFromBackend || 0)
-      : elapsedFromBackend || 0;
+  const wallClockMs =
+    startedAt !== null && startedAt > 0 ? Math.max(0, now - startedAt) : null;
+  const elapsedMs = elapsedFromBackend !== null && elapsedFromBackend > 0 ? elapsedFromBackend : wallClockMs || 0;
   const tokens = firstNum(conversation.streamTokenCount) || 0;
   const ttftMs = firstNum(conversation.streamTtftMs);
-  const tokensPerSecond = elapsedMs > 0 && tokens > 0 ? (tokens / elapsedMs) * 1000 : null;
+  // 卡住检测与宿主一致：2s 内 token 数没有变化即视为卡住，速度归 0，
+  // 避免把「工具执行等待 / 流中断」的墙钟时间算进速度里。
+  const isStalled =
+    isStreaming &&
+    tokens > 0 &&
+    typeof lastTokenChangeAt === "number" &&
+    now - lastTokenChangeAt >= STALL_THRESHOLD_MS;
+  const tokensPerSecond =
+    tokens > 0 && elapsedMs > 0 && !isStalled ? (tokens / elapsedMs) * 1000 : null;
   const usage = readTokenUsage(conversation.tokenUsage);
   const total = usage ? usage.total : null;
   const maxTokens = firstNum(chatInput.maxContextTokens);
@@ -1555,6 +1603,7 @@ function readLiveMetrics(conversation, chatInput, now) {
     elapsedMs,
     ttftMs: ttftMs !== null && ttftMs > 0 ? ttftMs : null,
     tokensPerSecond,
+    isStalled,
     isLoadingApiConfig: chatInput.isLoadingApiConfig === true,
     context: { total, maxTokens, percent },
   };

@@ -10,7 +10,7 @@
     "zh-CN": "实时查看会话的运行轨迹与数据：流式指标、TODO 进度、工具调用时间线、文件改动与子代理，跟随当前会话自动切换。",
     "en": "Live session trajectory and run data: streaming metrics, TODO progress, tool-call timeline, file changes and sub-agents, following the active conversation."
   },
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "MayMay",
   "license": "MIT",
   "icon": "lucide:Route",
