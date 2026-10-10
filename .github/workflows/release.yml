@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve plugin version and asset name
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./plugin.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "asset=snow-track-plugin-${VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin archive
+        run: |
+          ASSET="${{ steps.meta.outputs.asset }}"
+          # plugin.json 必须位于 zip 根目录，不能套一层文件夹
+          zip -r "${ASSET}" plugin.json index.js styles.css locales LICENSE README.md
+          sha256sum "${ASSET}" | tee "${ASSET}.sha256"
+          unzip -l "${ASSET}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            "${{ steps.meta.outputs.asset }}" \
+            "${{ steps.meta.outputs.asset }}.sha256"

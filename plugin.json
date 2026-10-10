@@ -1,0 +1,40 @@
+{
+  "id": "com.snow.session-track",
+  "name": {
+    "default": "Session Track",
+    "zh-CN": "会话轨迹",
+    "en": "Session Track"
+  },
+  "description": {
+    "default": "Live session trajectory and run data: streaming metrics, TODO progress, tool-call timeline, file changes and sub-agents, following the active conversation.",
+    "zh-CN": "实时查看会话的运行轨迹与数据：流式指标、TODO 进度、工具调用时间线、文件改动与子代理，跟随当前会话自动切换。",
+    "en": "Live session trajectory and run data: streaming metrics, TODO progress, tool-call timeline, file changes and sub-agents, following the active conversation."
+  },
+  "version": "1.0.0",
+  "author": "MayMay",
+  "license": "MIT",
+  "icon": "lucide:Route",
+  "renderMode": "esm",
+  "entry": "index.js",
+  "panels": [
+    {
+      "id": "track",
+      "title": {
+        "default": "Session Track",
+        "zh-CN": "会话轨迹",
+        "en": "Session Track"
+      },
+      "icon": "lucide:Route",
+      "widthHint": "420px"
+    }
+  ],
+  "locales": {
+    "zh-CN": "locales/zh-CN.json",
+    "en": "locales/en.json"
+  },
+  "styles": ["styles.css"],
+  "privacy": {
+    "scopes": ["conversations", "messages"],
+    "note": "读取项目会话列表与所选会话的消息记录，用于在本机面板中还原运行轨迹（工具调用、耗时、token）；数据只在本机展示，不外发、不写入。"
+  }
+}
