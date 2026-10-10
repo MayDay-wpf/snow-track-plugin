@@ -85,6 +85,7 @@
   "action.openFile": "Open file",
   "action.inspect": "Inspect",
   "raw.hint": "Raw snapshot (copy for diagnostics)",
+  "error.render": "Panel render failed",
   "toolbar.copy": "Copy snapshot",
   "toolbar.copied": "Copied"
 }

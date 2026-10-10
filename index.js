@@ -20,6 +20,61 @@ export default function SessionTrackPanel(props) {
   const Snow = typeof window === "undefined" ? null : window.SnowAppPlugin;
   const React = (api && api.ui && api.ui.React) || (Snow && Snow.React);
   if (!React) throw new Error("SnowAppPlugin.React unavailable");
+  const Boundary = resolveErrorBoundary(React);
+  return React.createElement(Boundary, { api }, React.createElement(TrackPanel, props));
+}
+
+/** 面板级错误边界：渲染异常只降级为面板内提示，不让异常冒泡拖垮整个应用。 */
+let PanelErrorBoundary = null;
+
+function resolveErrorBoundary(React) {
+  if (PanelErrorBoundary) return PanelErrorBoundary;
+  class PanelBoundary extends React.Component {
+    constructor(innerProps) {
+      super(innerProps);
+      this.state = { error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+      return { error };
+    }
+
+    componentDidCatch(error) {
+      try {
+        const api = this.props.api;
+        if (api && typeof api.log === "function") api.log("panel render failed", error);
+      } catch (err) {
+        /* 忽略 */
+      }
+    }
+
+    render() {
+      if (!this.state.error) return this.props.children;
+      const api = this.props.api || {};
+      let label = "面板渲染失败";
+      try {
+        if (typeof api.t === "function") label = api.t("error.render", { defaultValue: label });
+      } catch (err) {
+        /* 忽略 */
+      }
+      const error = this.state.error;
+      const message = error && error.message ? String(error.message) : String(error);
+      return React.createElement(
+        "div",
+        { className: "stk-root" },
+        React.createElement("div", { className: "stk-error" }, label + ": " + message),
+      );
+    }
+  }
+  PanelErrorBoundary = PanelBoundary;
+  return PanelErrorBoundary;
+}
+
+function TrackPanel(props) {
+  const api = props.api;
+  const Snow = typeof window === "undefined" ? null : window.SnowAppPlugin;
+  const React = (api && api.ui && api.ui.React) || (Snow && Snow.React);
+  if (!React) throw new Error("SnowAppPlugin.React unavailable");
   const h = React.createElement;
   const { useCallback, useEffect, useMemo, useRef, useState } = React;
 
@@ -399,6 +454,11 @@ export default function SessionTrackPanel(props) {
     [domainList],
   );
 
+  const projectId = stringOf(
+    view.conversation.directoryId,
+    selectedRecord ? selectedRecord.directoryId : null,
+  );
+
   return h(
     "div",
     { className: "stk-root" },
@@ -414,17 +474,15 @@ export default function SessionTrackPanel(props) {
           { className: "stk-title", title: selectedId || "" },
           stringOf(
             view.conversation.title,
-            selectedRecord && selectedRecord.title,
-            selectedRecord && selectedRecord.summary,
+            selectedRecord ? selectedRecord.title : null,
+            selectedRecord ? selectedRecord.summary : null,
           ) || tr("title.empty", "无活动会话"),
         ),
         h(
           "div",
           { className: "stk-sub" },
-          stringOf(view.conversation.directoryId, selectedRecord && selectedRecord.directoryId)
-            ? tr("label.project", "项目") +
-                " " +
-                shortPath(stringOf(view.conversation.directoryId, selectedRecord.directoryId))
+          projectId
+            ? tr("label.project", "项目") + " " + shortPath(projectId)
             : tr("label.session", "会话") + " " + (selectedId ? String(selectedId).slice(0, 8) : "—"),
         ),
       ),

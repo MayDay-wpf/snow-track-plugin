@@ -85,6 +85,7 @@
   "action.openFile": "打开文件",
   "action.inspect": "查看此会话",
   "raw.hint": "原始快照（可复制用于诊断）",
+  "error.render": "面板渲染失败",
   "toolbar.copy": "复制快照",
   "toolbar.copied": "已复制"
 }
